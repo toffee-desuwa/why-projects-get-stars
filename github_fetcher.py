@@ -1,31 +1,62 @@
-"""
-GitHub fetcher (placeholder)
+from __future__ import annotations
 
-Status: v0.1 (research-first)
-
-In v0.2, this module will fetch README content for a given GitHub repo,
-so the scorer can run on real inputs without manual copy-paste.
-
-Design notes:
-- Keep this small and dependency-light.
-- Prefer GitHub raw content endpoints or API, but allow offline mode too.
-
-v0.1 intentionally does nothing to avoid implying functionality that isn't shipped yet.
-"""
-
-from typing import Optional
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 
 
-def fetch_readme(owner: str, repo: str, branch: str = "main") -> Optional[str]:
+@dataclass(frozen=True)
+class ReadmeFetchResult:
+    repo: str
+    ref: str
+    filename: str
+    text: str
+    source_url: str
+
+
+README_CANDIDATES = ("README.md", "README.MD", "README.rst", "README.txt", "README")
+
+
+def _http_get_text(url: str, timeout: int = 20) -> str:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "why-projects-get-stars/0.2 (README fetcher)",
+            "Accept": "text/plain, text/markdown, */*",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = resp.read()
+    return data.decode("utf-8", errors="replace")
+
+
+def fetch_readme(repo: str, ref: str = "main") -> ReadmeFetchResult:
     """
-    Fetch README.md as plain text.
+    Fetch README from GitHub via raw.githubusercontent.com.
 
-    Returns:
-        README content if available, otherwise None.
+    Why raw?
+    - no extra dependency (requests)
+    - no token required
+    - simple and predictable
 
-    v0.2 will implement:
-    - URL construction and HTTP fetching
-    - fallback branches (main/master)
-    - minimal error handling
+    Raises ValueError if README not found.
     """
-    raise NotImplementedError("v0.2 will add fetching. For now, use local README text.")
+    if "/" not in repo:
+        raise ValueError('repo must be "owner/name", got: {repo!r}')
+
+    owner, name = repo.split("/", 1)
+
+    last_err: Exception | None = None
+    for filename in README_CANDIDATES:
+        url = f"https://raw.githubusercontent.com/{owner}/{name}/{ref}/{filename}"
+        try:
+            text = _http_get_text(url)
+            # raw.githubusercontent returns a 404 html page sometimes; guard it.
+            if "404: Not Found" in text[:200]:
+                raise urllib.error.HTTPError(url, 404, "Not Found", hdrs=None, fp=None)
+            return ReadmeFetchResult(repo=repo, ref=ref, filename=filename, text=text, source_url=url)
+        except Exception as e:
+            last_err = e
+            continue
+
+    raise ValueError(f"README not found for {repo}@{ref}. Last error: {last_err}")

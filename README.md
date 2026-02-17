@@ -1,8 +1,26 @@
 # why-projects-get-stars
 
 A research-first framework for explaining (and scoring) why some GitHub repos earn stars — beyond pure code difficulty.
-Status: v0.1 (research-first). Tooling (minimal CLI) is planned for v0.2.
+Status: **v0.2** (README-first heuristic scorer + minimal CLI).
+Tooling: `python main.py score --repo owner/name [--format text|json]`
+
 ---
+## Quickstart (v0.2)
+
+v0.2 is intentionally lightweight: **stdlib-only** (no third-party deps).
+
+### Score a repo (text)
+
+```bash
+python main.py score --repo shadcn-ui/ui 
+```
+
+### Score a repo (json)
+
+```bash
+python main.py score --repo shadcn-ui/ui --format json
+```
+
 
 ## Why this project exists
 
@@ -36,7 +54,11 @@ This framing matters because stars are a public signal of attention. If stars we
 Code quality still matters — just often **later** in the funnel.
 
 ---
+> Scope note (v0.2): this tool is **README-first**. Docs-first repos (thin README, heavy external docs) may score lower by design. README-first for reproducibility.
 
+> I’m starting with a strict README-first evaluator for reproducibility.  
+
+> Later I’ll add an optional “follow 1-step docs link” mode for docs-first repos.
 ## Framework
 
 I’m treating a “star decision” as something that often happens in the *reading phase*.  
@@ -192,3 +214,4 @@ What I’m doing next:
 
 - Collect more case studies (high / mid / low star repos), and keep the notes public under `docs/`.
 - Turn the framework into a small scoring tool (v0.2): given a repo README, output a 0–10 score + reasons.
+- Add an optional docs-follow mode (follow 1-step “Docs / Getting Started” link) to better handle docs-first repos like shadcn/ui.

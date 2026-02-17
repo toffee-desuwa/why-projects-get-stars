@@ -1,29 +1,202 @@
-"""
-Evaluator (placeholder)
+from __future__ import annotations
 
-Status: v0.1 (research-first)
-
-In v0.2, this module will turn the framework into something executable:
-- input: a repo README (text) + optional metadata
-- output: 0–10 overall score + per-dimension scores + short reasons
-
-Why a separate module?
-- Keep scoring logic testable and independent from fetching/CLI glue.
-"""
-
+import re
+from dataclasses import dataclass
 from typing import Dict
 
 
-def evaluate_repo(readme_text: str) -> Dict[str, float]:
-    """
-    Evaluate a repo based on README text and return dimension scores.
+@dataclass(frozen=True)
+class DimensionScore:
+    score: float
+    why: str  # one sentence, reader-facing
 
-    v0.1: not implemented.
-    v0.2 plan (rough):
-    - extract signals (problem clarity, narrative, onboarding friction, etc.)
-    - map signals -> 4 dimension scores
-    - return {dimension: score}
+
+@dataclass(frozen=True)
+class EvalResult:
+    scores: Dict[str, DimensionScore]
+    signals: Dict[str, int]  # debug: observed cues / counts
+
+
+def _count(pattern: str, text: str, flags: int = 0) -> int:
+    return len(re.findall(pattern, text, flags))
+
+
+def _has(pattern: str, text: str, flags: int = 0) -> bool:
+    return re.search(pattern, text, flags) is not None
+
+
+def _count_fenced_code_blocks(text: str) -> int:
     """
-    raise NotImplementedError(
-        "v0.2 will implement README-based evaluation. See README.md for the framework."
+    Rough count of fenced code blocks.
+
+    Why this exists:
+    - many READMEs use ``` fences, some use ~~~ fences
+    - we don't need perfect parsing; we just want a "does it show runnable stuff?" signal
+    """
+    ticks = _count(r"```", text)
+    tildes = _count(r"~~~", text)
+    return (ticks // 2) + (tildes // 2)
+
+
+def evaluate_readme(readme_text: str) -> EvalResult:
+    """
+    Heuristic v0.2 evaluator (README-first).
+
+    What we're trying to measure:
+    - "star-worthiness signals" as they appear to a reader skimming the README
+    - not code quality, not algorithmic difficulty
+
+    This is intentionally conservative:
+    - if a README doesn't *show* evidence, we don't give it credit
+    """
+    t = readme_text
+
+    # --- Observable signals (debug-friendly) ---
+    has_title = _has(r"(?m)^\s*#\s+\S+", t)
+
+    # TL;DR / one-line / summary-ish cues
+    has_tldr = _has(r"(?i)\b(tl;dr|tldr|one[- ]line|summary|in short)\b", t)
+
+    # "Install/Usage" headers are common, but plenty of repos don't use those exact words.
+    # We try to catch onboarding sections that still function as install/usage.
+    has_install = _has(
+        r"(?i)\b(install|installation|get(ting)? started|setup|set up|requirements|prerequisite|dependencies)\b",
+        t,
     )
+    has_usage = _has(
+        r"(?i)\b(usage|quick\s*start|quickstart|examples?|how to|run|try it|getting\s+started|cli|commands?)\b",
+        t,
+    )
+
+    # Demo-ish cues: explicit words OR any markdown image
+    has_demo = (
+        _has(r"(?i)\b(demo|screenshot|gif|video|preview)\b", t)
+        or _has(r"!\[.*?\]\(.*?\)", t)
+    )
+    
+    has_badges = _has(r"!\[.*?\]\(https?://img\.shields\.io/.*?\)", t)
+
+    code_blocks = _count_fenced_code_blocks(t)
+
+    # Steps: "1." / "1)" / "Step 1:" / "- Step:"
+    step_lines = _count(r"(?im)^\s*(\d+\.\s+|\d+\)\s+|step\s*\d+\s*:)", t)
+
+    # Bullets: -, *, or unicode bullet
+    bullets = _count(r"(?m)^\s*([-*]|•)\s+", t)
+
+    has_docs_link = _has(r"(?i)\b(docs|documentation)\b", t) and _has(r"https?://\S+", t)
+    
+    docs_is_primary_onboarding = bool(has_docs_link and (not has_install) and 
+    (not has_usage) and code_blocks == 0 and step_lines == 0)
+
+
+    # Also detect "one-command" onboarding (npx, curl | bash, pip install, etc.)
+    has_one_command = _has(
+        r"(?i)\b(npx\s+\S+|pip\s+install\s+\S+|curl\s+.+\|\s*(sh|bash)|docker\s+run\s+\S+)\b",
+        t,
+    )
+
+    signals = {
+        "has_title": int(has_title),
+        "has_tldr": int(has_tldr),
+        "has_install": int(has_install),
+        "has_usage": int(has_usage),
+        "has_demo": int(has_demo),
+        "has_badges": int(has_badges),
+        "code_blocks": int(code_blocks),
+        "step_lines": int(step_lines),
+        "bullets": int(bullets),
+        "has_one_command": int(has_one_command),
+        "has_docs_link": int(has_docs_link),
+        "docs_is_primary_onboarding": int(docs_is_primary_onboarding),
+
+    }
+
+    # --- Dimension 1: problem_clarity ---
+    pc = 3.0
+    if has_title:
+        pc += 1.0
+    if has_tldr:
+        pc += 1.5
+    if _has(r"(?i)\b(what\s+it\s+is|what\s+this\s+is|why)\b", t):
+        pc += 1.0
+    if bullets >= 6:
+        pc += 0.5
+    pc = min(10.0, pc)
+
+    if pc >= 8:
+        pc_why = "It quickly answers what it is and who it’s for with low ambiguity."
+    elif pc <= 5:
+        pc_why = "It’s not obvious who it’s for or what problem it solves from the first screen."
+    else:
+        pc_why = "It states what it is early, but the target user / problem framing could be sharper."
+
+    # --- Dimension 2: novelty_trend_fit ---
+    nt = 4.0
+    if _has(r"(?i)\b(new|novel|first|unique|different|opinionated)\b", t):
+        nt += 1.0
+    if _has(r"(?i)\b(agent|workflow|automation|benchmark|copy[- ]paste)\b", t):
+        nt += 1.0
+    if has_demo:
+        nt += 0.5
+    nt = min(10.0, nt)
+
+    if nt >= 7:
+        nt_why = "It has a distinct angle that matches current developer attention and trends."
+    elif nt <= 5:
+        nt_why = "It reads like a standard library without a strong ‘why now / why different’ hook."
+    else:
+        nt_why = "It has a recognizable angle, but the differentiation claim isn’t strongly demonstrated yet."
+
+    # --- Dimension 3: distribution_potential ---
+    dp = 3.5
+    if has_demo:
+        dp += 2.0
+    if has_badges:
+        dp += 0.5
+    if (has_usage or has_one_command) and (step_lines >= 2 or code_blocks >= 1):
+        dp += 1.5
+    if _has(r"(?i)\b(copy[- ]paste|3\s*minutes|one\s+command|zero\s+config)\b", t):
+        dp += 1.0
+    dp = min(10.0, dp)
+
+    if dp >= 8:
+        dp_why = "It lowers sharing friction with clear payoff, visuals, and fast first success."
+    elif dp <= 5:
+        dp_why = "There’s little reason to share it: no visible payoff, demo, or quick success path."
+    else:
+        dp_why = "It’s shareable if people can ‘see the payoff’ quickly."
+
+    # --- Dimension 4: execution_quality (README-first onboarding quality) ---
+    eq = 3.0
+    if has_install or has_one_command:
+        eq += 2.0
+    if has_usage:
+        eq += 2.0
+    if has_docs_link:
+        eq += 1.0
+    if docs_is_primary_onboarding:
+        eq += 0.5  # acknowledge docs-first projects (still README-first scorer)
+
+    if step_lines >= 3:
+        eq += 1.0
+    if code_blocks >= 2:
+        eq += 0.5
+    if _has(r"(?i)\b(requirements|dependencies|python\s+>=|node\s+>=)\b", t):
+        eq += 0.5
+    eq = min(10.0, eq)
+
+    if eq >= 8:
+        eq_why = "It gives a low-friction path to first success (install → run → see output)."
+    elif eq <= 5:
+        eq_why = "Even if the code works, the onboarding path feels under-specified."
+    else:
+        eq_why = "It’s runnable with some effort, but the first-success path could be more explicit."
+
+    scores = {
+        "problem_clarity": DimensionScore(pc, pc_why),
+        "novelty_trend_fit": DimensionScore(nt, nt_why),
+        "distribution_potential": DimensionScore(dp, dp_why),
+        "execution_quality": DimensionScore(eq, eq_why),
+    }
+    return EvalResult(scores=scores, signals=signals)

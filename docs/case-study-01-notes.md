@@ -1,3 +1,5 @@
+Heads-up: shadcn/ui is docs-first, so our README-first scorer will underrate it in v0.2. Details in case-study-02-docs-first.md.
+
 ## Structured Comparison (v3)
 
 | Repo | One-line Positioning | Target User | Core Stack / Dependencies | Distribution / Design Philosophy | Onboarding Path (first-screen feel) | Ecosystem / Supporting Resources | Narrative Signals (first screen) | Notes |
