@@ -89,15 +89,6 @@ def main(argv: list[str] | None = None) -> None:
             for dim in _DIM_ORDER
         }
 
-        # Which docs signals actually contributed to scoring?
-        _DOCS_SIGNAL_KEYS = [
-            "docs_has_install", "docs_has_usage",
-            "docs_code_blocks", "docs_step_lines", "docs_has_one_command",
-        ]
-        docs_signals_used = [
-            k for k in _DOCS_SIGNAL_KEYS if ev.signals.get(k, 0)
-        ]
-
         # Top-level key order: version, repo, readme, source, overall, scores, signals,
         # then docs debug fields.
         payload = {
@@ -110,7 +101,7 @@ def main(argv: list[str] | None = None) -> None:
             "signals": dict(sorted(ev.signals.items())),
             "docs_followed_url": docs_followed_url,
             "docs_fetch_ok": docs_fetch_ok,
-            "docs_signals_used": docs_signals_used,
+            "docs_signals_used": ev.docs_signals_applied,
         }
 
         if args.format == "json":

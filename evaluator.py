@@ -15,6 +15,7 @@ class DimensionScore:
 class EvalResult:
     scores: Dict[str, DimensionScore]
     signals: Dict[str, int]  # debug: observed cues / counts
+    docs_signals_applied: list  # docs signals that actually changed scoring (not just detected)
 
 
 def _count(pattern: str, text: str, flags: int = 0) -> int:
@@ -225,15 +226,24 @@ def evaluate_readme(readme_text: str, *, docs_text: str | None = None) -> EvalRe
 
     # Docs supplement: only count cues the README itself didn't already provide.
     # Each docs signal is capped so it can't dominate the score.
+    # We track which signals actually changed eq (not just detected) for traceability.
+    _applied = []
     if docs_text:
         if docs_has_install and not (has_install or has_one_command):
             eq += 1.0
+            _applied.append("docs_has_install")
         if docs_has_usage and not has_usage:
             eq += 1.0
+            _applied.append("docs_has_usage")
         if docs_step_lines >= 3 and step_lines < 3:
             eq += 0.5
+            _applied.append("docs_step_lines")
+        # Code blocks are an independent onboarding signal (runnable examples),
+        # so they can add a small bump even when the README already has
+        # install/usage sections — those sections might lack concrete snippets.
         if docs_code_blocks >= 2 and code_blocks < 2:
             eq += 0.5
+            _applied.append("docs_code_blocks")
 
     eq = min(10.0, eq)
 
@@ -250,4 +260,4 @@ def evaluate_readme(readme_text: str, *, docs_text: str | None = None) -> EvalRe
         "distribution_potential": DimensionScore(dp, dp_why),
         "execution_quality": DimensionScore(eq, eq_why),
     }
-    return EvalResult(scores=scores, signals=signals)
+    return EvalResult(scores=scores, signals=signals, docs_signals_applied=_applied)
