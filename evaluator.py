@@ -38,9 +38,9 @@ def _count_fenced_code_blocks(text: str) -> int:
     return (ticks // 2) + (tildes // 2)
 
 
-def evaluate_readme(readme_text: str) -> EvalResult:
+def evaluate_readme(readme_text: str, *, docs_text: str | None = None) -> EvalResult:
     """
-    Heuristic v0.2 evaluator (README-first).
+    Heuristic v0.3 evaluator (README-first, optional docs supplement).
 
     What we're trying to measure:
     - "star-worthiness signals" as they appear to a reader skimming the README
@@ -48,6 +48,11 @@ def evaluate_readme(readme_text: str) -> EvalResult:
 
     This is intentionally conservative:
     - if a README doesn't *show* evidence, we don't give it credit
+
+    docs_text: when --follow-docs is used, the fetched docs page text.
+    Signals from docs are tracked separately (docs_* prefix) for traceability.
+    Only execution_quality uses docs evidence — the other dimensions stay
+    README-only, since they measure first-screen impression.
     """
     t = readme_text
 
@@ -109,8 +114,39 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         "has_one_command": int(has_one_command),
         "has_docs_link": int(has_docs_link),
         "docs_is_primary_onboarding": int(docs_is_primary_onboarding),
-
     }
+
+    # --- Supplemental docs signals (only when --follow-docs provides text) ---
+    # Tracked separately so score changes are traceable to their source.
+    docs_has_install = False
+    docs_has_usage = False
+    docs_code_blocks = 0
+    docs_step_lines = 0
+    docs_has_one_command = False
+
+    if docs_text:
+        docs_has_install = _has(
+            r"(?i)\b(install|installation|get(ting)? started|setup|set up|requirements|prerequisite|dependencies)\b",
+            docs_text,
+        )
+        docs_has_usage = _has(
+            r"(?i)\b(usage|quick\s*start|quickstart|examples?|how to|run|try it|getting\s+started|cli|commands?)\b",
+            docs_text,
+        )
+        docs_code_blocks = _count_fenced_code_blocks(docs_text)
+        docs_step_lines = _count(
+            r"(?im)^\s*(\d+\.\s+|\d+\)\s+|step\s*\d+\s*:)", docs_text
+        )
+        docs_has_one_command = _has(
+            r"(?i)\b(npx\s+\S+|pip\s+install\s+\S+|curl\s+.+\|\s*(sh|bash)|docker\s+run\s+\S+)\b",
+            docs_text,
+        )
+
+    signals["docs_has_install"] = int(docs_has_install)
+    signals["docs_has_usage"] = int(docs_has_usage)
+    signals["docs_code_blocks"] = int(docs_code_blocks)
+    signals["docs_step_lines"] = int(docs_step_lines)
+    signals["docs_has_one_command"] = int(docs_has_one_command)
 
     # --- Dimension 1: problem_clarity ---
     pc = 3.0
@@ -186,6 +222,19 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         eq += 0.5
     if _has(r"(?i)\b(requirements|dependencies|python\s+>=|node\s+>=)\b", t):
         eq += 0.5
+
+    # Docs supplement: only count cues the README itself didn't already provide.
+    # Each docs signal is capped so it can't dominate the score.
+    if docs_text:
+        if docs_has_install and not (has_install or has_one_command):
+            eq += 1.0
+        if docs_has_usage and not has_usage:
+            eq += 1.0
+        if docs_step_lines >= 3 and step_lines < 3:
+            eq += 0.5
+        if docs_code_blocks >= 2 and code_blocks < 2:
+            eq += 0.5
+
     eq = min(10.0, eq)
 
     if eq >= 8:

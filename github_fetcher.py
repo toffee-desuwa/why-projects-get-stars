@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -60,3 +61,55 @@ def fetch_readme(repo: str, ref: str = "main") -> ReadmeFetchResult:
             continue
 
     raise ValueError(f"README not found for {repo}@{ref}. Last error: {last_err}")
+
+
+def extract_docs_url(readme_text: str) -> str | None:
+    """
+    Find the first docs/documentation URL in a README.
+
+    Strategy (in order):
+    1. Markdown link whose text mentions docs/documentation/getting started
+    2. Any URL whose path contains /docs or /documentation
+    3. Bare URL on the same line as "docs"/"documentation" (either order)
+
+    Returns the first match or None. Intentionally conservative —
+    we'd rather miss a link than follow the wrong one.
+    """
+    # 1) Markdown links with docs-related anchor text
+    md_link = re.search(
+        r"\[(?:[^\]]*(?:docs|documentation|getting\s+started)[^\]]*)\]\((https?://[^\s)]+)\)",
+        readme_text,
+        re.IGNORECASE,
+    )
+    if md_link:
+        return md_link.group(1)
+
+    # 2) Any URL whose path contains /docs or /documentation
+    path_match = re.search(
+        r"(https?://\S+/(?:docs|documentation)\b\S*)",
+        readme_text,
+        re.IGNORECASE,
+    )
+    if path_match:
+        return path_match.group(1)
+
+    # 3) Bare URL on a line that also mentions docs/documentation
+    for line in readme_text.splitlines():
+        if re.search(r"(?i)\b(?:docs|documentation)\b", line):
+            url_match = re.search(r"(https?://\S+)", line)
+            if url_match:
+                return url_match.group(1)
+
+    return None
+
+
+def fetch_docs_page(url: str, timeout: int = 10) -> str | None:
+    """
+    Fetch a single docs page. Returns text or None on any failure.
+
+    This is not a crawler. One URL, one attempt, short timeout.
+    """
+    try:
+        return _http_get_text(url, timeout=timeout)
+    except Exception:
+        return None
