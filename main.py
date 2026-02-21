@@ -1,15 +1,9 @@
 """
 why-projects-get-stars — entry point
 
-Status: v0.1 (research-first)
+Status: v0.3 (README-first heuristic scorer + optional docs-follow mode)
 
-This repo is currently centered on:
-- a scoring schema (`scoring_schema.py`)
-- public case-study notes (`docs/`)
-- a README that explains the working hypothesis and framework
-
-The CLI/tooling will land in v0.2.
-This file exists as a clear, honest placeholder for that next step.
+CLI: python main.py score --repo owner/name [--ref main] [--format text|json]
 """
 
 from __future__ import annotations
@@ -20,7 +14,7 @@ import json
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="why-projects-get-stars",
-        description="Score a GitHub repo's star-worthiness signals (v0.2 WIP).",
+        description="Score a GitHub repo's star-worthiness signals (v0.3).",
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -65,16 +59,28 @@ def main(argv: list[str] | None = None) -> None:
         numeric_scores = {k: v.score for k, v in ev.scores.items()}
         overall = calculate_overall_score(numeric_scores)
 
+        # Fixed dimension order — must stay stable across versions.
+        _DIM_ORDER = [
+            "problem_clarity",
+            "novelty_trend_fit",
+            "distribution_potential",
+            "execution_quality",
+        ]
+
+        scores_ordered = {
+            dim: {"score": ev.scores[dim].score, "why": ev.scores[dim].why}
+            for dim in _DIM_ORDER
+        }
+
+        # Top-level key order: version, repo, readme, source, overall, scores, signals.
         payload = {
+            "version": "0.3.0",
             "repo": f"{args.repo}@{args.ref}",
             "readme": res.filename,
             "source": res.source_url,
             "overall": overall,
-            "scores": {
-                dim: {"score": ds.score, "why": ds.why}
-                for dim, ds in ev.scores.items()
-            },
-            "signals": ev.signals,
+            "scores": scores_ordered,
+            "signals": dict(sorted(ev.signals.items())),
         }
 
         if args.format == "json":
@@ -86,15 +92,16 @@ def main(argv: list[str] | None = None) -> None:
         print(f"README: {res.filename}")
         print(f"Source: {res.source_url}")
         print()
-        print(f"Overall (0–10): {overall}")
+        print(f"Overall (0-10): {overall}")
         print()
 
-        for dim, ds in ev.scores.items():
+        for dim in _DIM_ORDER:
+            ds = ev.scores[dim]
             print(f"- {dim}: {ds.score}/10")
             print(f"  why: {ds.why}")
 
         print()
-        print("Debug signals:", ev.signals)
+        print("Debug signals:", dict(sorted(ev.signals.items())))
         return
 
 

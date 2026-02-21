@@ -124,7 +124,8 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         pc += 0.5
     pc = min(10.0, pc)
 
-    if pc >= 8:
+    # ceiling is 7.0 (3 base + 1 title + 1.5 tldr + 1 what/why + 0.5 bullets)
+    if pc >= 7:
         pc_why = "It quickly answers what it is and who it’s for with low ambiguity."
     elif pc <= 5:
         pc_why = "It’s not obvious who it’s for or what problem it solves from the first screen."
@@ -141,7 +142,8 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         nt += 0.5
     nt = min(10.0, nt)
 
-    if nt >= 7:
+    # ceiling is 6.5 (4 base + 1 novelty words + 1 trend words + 0.5 demo)
+    if nt >= 6.5:
         nt_why = "It has a distinct angle that matches current developer attention and trends."
     elif nt <= 5:
         nt_why = "It reads like a standard library without a strong ‘why now / why different’ hook."

@@ -42,7 +42,7 @@ def fetch_readme(repo: str, ref: str = "main") -> ReadmeFetchResult:
     Raises ValueError if README not found.
     """
     if "/" not in repo:
-        raise ValueError('repo must be "owner/name", got: {repo!r}')
+        raise ValueError(f'repo must be "owner/name", got: {repo!r}')
 
     owner, name = repo.split("/", 1)
 
