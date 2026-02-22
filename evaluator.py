@@ -15,6 +15,7 @@ class DimensionScore:
 class EvalResult:
     scores: Dict[str, DimensionScore]
     signals: Dict[str, int]  # debug: observed cues / counts
+    docs_signals_applied: list  # docs signals that actually changed scoring (not just detected)
 
 
 def _count(pattern: str, text: str, flags: int = 0) -> int:
@@ -38,9 +39,9 @@ def _count_fenced_code_blocks(text: str) -> int:
     return (ticks // 2) + (tildes // 2)
 
 
-def evaluate_readme(readme_text: str) -> EvalResult:
+def evaluate_readme(readme_text: str, *, docs_text: str | None = None) -> EvalResult:
     """
-    Heuristic v0.2 evaluator (README-first).
+    Heuristic v0.3 evaluator (README-first, optional docs supplement).
 
     What we're trying to measure:
     - "star-worthiness signals" as they appear to a reader skimming the README
@@ -48,6 +49,11 @@ def evaluate_readme(readme_text: str) -> EvalResult:
 
     This is intentionally conservative:
     - if a README doesn't *show* evidence, we don't give it credit
+
+    docs_text: when --follow-docs is used, the fetched docs page text.
+    Signals from docs are tracked separately (docs_* prefix) for traceability.
+    Only execution_quality uses docs evidence — the other dimensions stay
+    README-only, since they measure first-screen impression.
     """
     t = readme_text
 
@@ -109,8 +115,39 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         "has_one_command": int(has_one_command),
         "has_docs_link": int(has_docs_link),
         "docs_is_primary_onboarding": int(docs_is_primary_onboarding),
-
     }
+
+    # --- Supplemental docs signals (only when --follow-docs provides text) ---
+    # Tracked separately so score changes are traceable to their source.
+    docs_has_install = False
+    docs_has_usage = False
+    docs_code_blocks = 0
+    docs_step_lines = 0
+    docs_has_one_command = False
+
+    if docs_text:
+        docs_has_install = _has(
+            r"(?i)\b(install|installation|get(ting)? started|setup|set up|requirements|prerequisite|dependencies)\b",
+            docs_text,
+        )
+        docs_has_usage = _has(
+            r"(?i)\b(usage|quick\s*start|quickstart|examples?|how to|run|try it|getting\s+started|cli|commands?)\b",
+            docs_text,
+        )
+        docs_code_blocks = _count_fenced_code_blocks(docs_text)
+        docs_step_lines = _count(
+            r"(?im)^\s*(\d+\.\s+|\d+\)\s+|step\s*\d+\s*:)", docs_text
+        )
+        docs_has_one_command = _has(
+            r"(?i)\b(npx\s+\S+|pip\s+install\s+\S+|curl\s+.+\|\s*(sh|bash)|docker\s+run\s+\S+)\b",
+            docs_text,
+        )
+
+    signals["docs_has_install"] = int(docs_has_install)
+    signals["docs_has_usage"] = int(docs_has_usage)
+    signals["docs_code_blocks"] = int(docs_code_blocks)
+    signals["docs_step_lines"] = int(docs_step_lines)
+    signals["docs_has_one_command"] = int(docs_has_one_command)
 
     # --- Dimension 1: problem_clarity ---
     pc = 3.0
@@ -124,7 +161,8 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         pc += 0.5
     pc = min(10.0, pc)
 
-    if pc >= 8:
+    # ceiling is 7.0 (3 base + 1 title + 1.5 tldr + 1 what/why + 0.5 bullets)
+    if pc >= 7:
         pc_why = "It quickly answers what it is and who it’s for with low ambiguity."
     elif pc <= 5:
         pc_why = "It’s not obvious who it’s for or what problem it solves from the first screen."
@@ -141,7 +179,8 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         nt += 0.5
     nt = min(10.0, nt)
 
-    if nt >= 7:
+    # ceiling is 6.5 (4 base + 1 novelty words + 1 trend words + 0.5 demo)
+    if nt >= 6.5:
         nt_why = "It has a distinct angle that matches current developer attention and trends."
     elif nt <= 5:
         nt_why = "It reads like a standard library without a strong ‘why now / why different’ hook."
@@ -184,6 +223,28 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         eq += 0.5
     if _has(r"(?i)\b(requirements|dependencies|python\s+>=|node\s+>=)\b", t):
         eq += 0.5
+
+    # Docs supplement: only count cues the README itself didn't already provide.
+    # Each docs signal is capped so it can't dominate the score.
+    # We track which signals actually changed eq (not just detected) for traceability.
+    _applied = []
+    if docs_text:
+        if docs_has_install and not (has_install or has_one_command):
+            eq += 1.0
+            _applied.append("docs_has_install")
+        if docs_has_usage and not has_usage:
+            eq += 1.0
+            _applied.append("docs_has_usage")
+        if docs_step_lines >= 3 and step_lines < 3:
+            eq += 0.5
+            _applied.append("docs_step_lines")
+        # Code blocks are an independent onboarding signal (runnable examples),
+        # so they can add a small bump even when the README already has
+        # install/usage sections — those sections might lack concrete snippets.
+        if docs_code_blocks >= 2 and code_blocks < 2:
+            eq += 0.5
+            _applied.append("docs_code_blocks")
+
     eq = min(10.0, eq)
 
     if eq >= 8:
@@ -199,4 +260,4 @@ def evaluate_readme(readme_text: str) -> EvalResult:
         "distribution_potential": DimensionScore(dp, dp_why),
         "execution_quality": DimensionScore(eq, eq_why),
     }
-    return EvalResult(scores=scores, signals=signals)
+    return EvalResult(scores=scores, signals=signals, docs_signals_applied=_applied)
