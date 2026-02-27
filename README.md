@@ -29,6 +29,8 @@ python main.py score --repo shadcn-ui/ui --follow-docs --format json
 
 `--follow-docs` follows the first docs link found in the README (one hop, short timeout) and looks for onboarding cues — install steps, usage examples, code blocks. It will not override a strong README score; it only fills gaps the README left open.
 
+**Windows note:** if PowerShell shows odd characters, run `chcp 65001` first or redirect JSON to a file: `python main.py score --repo shadcn-ui/ui --format json > out.json`
+
 
 ## Why this project exists
 
