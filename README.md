@@ -63,6 +63,7 @@ Code quality still matters — just often **later** in the funnel.
 
 ---
 > Scope note (v0.3): this tool is **README-first** by default. Docs-first repos (thin README, heavy external docs) may score lower unless you pass `--follow-docs`, which follows one docs link and extracts onboarding cues. Even then, it only supplements `execution_quality` — the other three dimensions stay README-only, since they measure first-screen impression.
+> For docs-first repos, a low score often just means the evidence isn't visible in the README's first screen — not that the project is poor.
 ## Framework
 
 I’m treating a “star decision” as something that often happens in the *reading phase*.  
